@@ -1,29 +1,25 @@
-[Setting name="Enable Bonk! sound effect"]
-bool enableBonkSound = true;
+[Setting min=0 max=100 name="Threshold" description="How sensitive the Bonk! detection is. If you get many false positives, increase this value."]
+float bonkThreshold = 64.f;
 
-[Setting name="Enable Bonk! visual effect"]
-bool enableBonkFlash = true;
-
-[Setting min=0 max=100 name="Bonk threshold" description="How sensitive the Bonk! detection is. If you get many false positives, increase this value."]
-float bonkThresh = 64.f;
-
-[Setting min=0 max=60000 name="Bonk debounce" description="Length (in ms) to cool down before making additional Bonk! sounds."]
+[Setting min=0 max=60000 name="Debounce" description="Length (in ms) to cool down before sending additional shocks."]
 uint bonkDebounce = 500;
 
-[Setting min=0 max=1 name="Bonk! volume"]
-float bonkSoundGain = 0.4f;
+[Setting name="Username of your Pishock account"]
+string piShockUsername = "";
+[Setting password name="ApiKey of your Pishock account"]
+string piShockApiKey = "";
+[Setting password name="Sharecode of your Pishock shocker"]
+string piShockSharecode = "";
+[Setting min=0 max=100 name="The strength of the shock"]
+uint piShockStrength = 20;
+[Setting min=0 max=15 name="The duration of the shock"]
+uint piShockDuration = 1;
 
 void Main() {
-	init();
 	while (true) {
 		step();
 		yield();
 	}
-}
-
-Audio::Sample@ bonkSound;
-void init() {
-	@bonkSound = Audio::LoadSample("bonk.wav");
 }
 
 float prev_speed = 0;
@@ -67,7 +63,7 @@ void step() {
 		speed *= -1.f;
 		curr_acc *= -1.f;
 	}
-	bonkTargetThresh = (bonkThresh + prev_speed * 1.5f);
+	bonkTargetThresh = (bonkThreshold + prev_speed * 1.5f);
 	bool mainBonkDetect = curr_acc > bonkTargetThresh;
 #if TMNEXT
 	if (mainBonkDetect && !vis.IsTurbo) bonk(curr_acc);
@@ -82,10 +78,27 @@ void bonk(const float &in curr_acc) {
 	if ((lastBonk + bonkDebounce) > Time::Now) return;
 	
 	lastBonk = Time::Now;
-	if (enableBonkSound) {
-		Audio::Play(bonkSound, bonkSoundGain);
-		startBonkFlash();
-	}
+	startnew(CallAPI);
+}
+
+void CallAPI(){
+	Json::Value payload = Json::Object();
+    payload["Username"] = piShockUsername;
+    payload["Name"] = "TM-Shocker";
+    payload["Code"] = piShockSharecode;
+    payload["Duration"] = Text::Format("%d", piShockDuration);
+    payload["Intensity"] = Text::Format("%d", piShockStrength) ;
+    payload["Op"] = "0"; // shock
+    payload["Apikey"] = piShockApiKey;
+	trace(Json::Write(payload) );
+    Net::HttpRequest@ request =  Net::HttpPost("https://do.pishock.com/api/apioperate/", Json::Write(payload), "application/json");
+    while (!request.Finished()) {
+		yield();
+		sleep(50);
+    }
+
+		
+	trace("Shock send" + Text::Format("%d", request.ResponseCode()) );
 }
 
 float g_dt = 0;
@@ -100,39 +113,4 @@ float getSpeed(CSceneVehicleVisState@ vis) {
 #elif MP4
 	return vis.FrontSpeed;
 #endif
-}
-
-uint lastBonkFlash = 0;
-void startBonkFlash() {
-	lastBonkFlash = Time::Now;
-}
-
-void Render() {
-	if (!enableBonkFlash) return;
-	if (lastBonkFlash + 400 < Time::Now) return;
-
-	float w = float(Draw::GetWidth());
-	float h = float(Draw::GetHeight());
-
-	nvg::BeginPath();
-	nvg::MoveTo(vec2(0,0));
-	nvg::LineTo(vec2(0,0));
-
-	nvg::BeginPath();
-    nvg::Rect(0, 0, w, h);
-	nvg::FillPaint(nvg::BoxGradient(vec2(0,0), vec2(w,h), h*0.2, w*0.1, vec4(0,0,0,0), vec4(1,0,0,1.f-((Time::Now - lastBonkFlash)/400.f))));
-    nvg::Fill();
-    nvg::ClosePath();
-}
-
-uint64 lastBonkTime() {
-	return lastBonk;
-}
-
-float lastBonkScore() {
-	return detectedBonkVal;
-}
-
-float currentBonkThreshold() {
-	return bonkTargetThresh;
 }
